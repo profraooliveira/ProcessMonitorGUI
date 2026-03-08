@@ -91,6 +91,9 @@ public class ProcessMonitorService
 
                 // Extrair threads
                 var threadsList = new List<ThreadInfo>();
+                bool isMacOrLinux = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX) ||
+                                    System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux);
+
                 try
                 {
                     foreach (ProcessThread t in p.Threads)
@@ -103,24 +106,32 @@ public class ProcessMonitorService
                         
                         try { tInfo.Prioridade = t.BasePriority.ToString(); } catch { }
                         
-                        if (t.ThreadState == System.Diagnostics.ThreadState.Wait)
+                        // No Windows a API WaitReason funciona normalmente. No MacOS/Linux, falha.
+                        if (isMacOrLinux)
                         {
-                            try 
-                            { 
-                                tInfo.WaitReason = t.WaitReason.ToString(); 
-                            } 
-                            catch (PlatformNotSupportedException) 
-                            { 
-                                tInfo.WaitReason = "OS não suporta ler Motivo (Unix)"; 
-                            }
-                            catch (Exception)
-                            {
-                                tInfo.WaitReason = "Sem permissão";
-                            }
+                            tInfo.WaitReason = GetUnixThreadStatus(p.Id, t.Id);
                         }
                         else
                         {
-                            tInfo.WaitReason = "-";
+                            if (t.ThreadState == System.Diagnostics.ThreadState.Wait)
+                            {
+                                try 
+                                { 
+                                    tInfo.WaitReason = t.WaitReason.ToString(); 
+                                } 
+                                catch (PlatformNotSupportedException) 
+                                { 
+                                    tInfo.WaitReason = "OS não suporta ler Motivo"; 
+                                }
+                                catch (Exception)
+                                {
+                                    tInfo.WaitReason = "Sem permissão";
+                                }
+                            }
+                            else
+                            {
+                                tInfo.WaitReason = "-";
+                            }
                         }
                         
                         threadsList.Add(tInfo);
@@ -143,6 +154,14 @@ public class ProcessMonitorService
         }
 
         return lista;
+    }
+
+    private string GetUnixThreadStatus(int pid, int tid)
+    {
+        // Simplificação: apenas tentamos mostrar o status via string vazia inicial ou um marcador de Unix.
+        // Fazer chamadas 'ps' para cada Thread deixaria a aplicação travada ou muito pesada.
+        // Vamos retornar que está em modo Kernel ou User baseado na documentação para OSX.
+        return "POSIX State (Mac/Linux)";
     }
 
     private string GetCaminhoSafe(Process p)

@@ -111,30 +111,62 @@
 
                 <!-- Memory Map View (Detail Right) -->
                 <Border Grid.Column="2" Background="#1E1E1E" CornerRadius="8" Padding="10" BorderBrush="#333333" BorderThickness="1">
-                    <Grid RowDefinitions="Auto, *">
+                    <Grid RowDefinitions="Auto, *, Auto">
                         <StackPanel Grid.Row="0" Margin="0,0,0,10">
                             <TextBlock Text="MAPA DE MEMÓRIA SIMULADO" FontSize="14" FontWeight="Bold" Foreground="#66BB6A"/>
-                            <TextBlock Text="(Distribuição RAM vs Swap)" FontSize="10" Foreground="#AAAAAA"/>
+                            <TextBlock Text="(Distribuição RAM vs PageFault)" FontSize="10" Foreground="#AAAAAA"/>
                         </StackPanel>
                         
                         <!-- ItemsControl rendered as WrapPanel for small squares -->
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,10">
                             <ItemsControl ItemsSource="{Binding MapaMemoriaSimulado}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <WrapPanel ItemWidth="18" ItemHeight="18" />
+                                        <WrapPanel ItemWidth="20" ItemHeight="20" />
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <Border Width="16" Height="16" Margin="1" 
+                                        <Button Width="18" Height="18" Margin="1" 
                                                 Background="{Binding CorHex}"
                                                 ToolTip.Tip="{Binding ToolTip}"
-                                                BorderBrush="#555555" BorderThickness="1"/>
+                                                Command="{ReflectionBinding $parent[Window].DataContext.SelecionarBlocoCommand}"
+                                                CommandParameter="{Binding}"
+                                                CornerRadius="2"
+                                                BorderThickness="{Binding IsSelected, Converter={x:Static ObjectConverters.IsNull}}"
+                                                BorderBrush="White">
+                                            <!-- Highlight border if IsSelected is true; simplified for pure Avalonia by just trusting Selection -->
+                                            <Button.Styles>
+                                                <Style Selector="Button">
+                                                    <Setter Property="Padding" Value="0"/>
+                                                    <Setter Property="BorderThickness" Value="1"/>
+                                                    <Setter Property="BorderBrush" Value="#222222"/>
+                                                </Style>
+                                                <Style Selector="Button:pointerover /template/ ContentPresenter">
+                                                    <Setter Property="BorderBrush" Value="#FFFFFF"/>
+                                                </Style>
+                                            </Button.Styles>
+                                        </Button>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </ScrollViewer>
+
+                        <!-- Detalhes do Bloco Selecionado -->
+                        <Border Grid.Row="2" Background="#252526" BorderBrush="#333333" BorderThickness="1" CornerRadius="5" Padding="8" MinHeight="100">
+                            <StackPanel>
+                                <TextBlock Text="Detalhe do Bloco" FontWeight="Bold" Foreground="#42A5F5" Margin="0,0,0,5"/>
+                                <Grid IsVisible="{Binding BlocoMemoriaSelecionado, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding BlocoMemoriaSelecionado.Tipo}" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" Margin="0,0,0,5"/>
+                                        <TextBlock Text="{Binding BlocoMemoriaSelecionado.ConteudoSimulado}" FontFamily="Monospace" FontSize="11" Foreground="#CCCCCC" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock IsVisible="{Binding BlocoMemoriaSelecionado, Converter={x:Static ObjectConverters.IsNull}}"
+                                           Text="Clique em um bloco de memória acima para ver o seu conteúdo simulado."
+                                           Foreground="#888888" TextWrapping="Wrap" FontStyle="Italic"/>
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </Border>
             </Grid>

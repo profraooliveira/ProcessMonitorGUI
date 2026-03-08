@@ -23,6 +23,9 @@ public partial class MainWindowViewModel : ViewModelBase
     private ProcessoInfo? _processoSelecionado;
 
     [ObservableProperty]
+    private MemoryBlockInfo? _blocoMemoriaSelecionado;
+
+    [ObservableProperty]
     private bool _isMonitoring;
 
     [ObservableProperty]
@@ -106,9 +109,20 @@ public partial class MainWindowViewModel : ViewModelBase
         GerarMapaMemoria(value);
     }
 
+    [RelayCommand]
+    private void SelecionarBloco(MemoryBlockInfo bloco)
+    {
+        if (BlocoMemoriaSelecionado != null)
+            BlocoMemoriaSelecionado.IsSelected = false;
+
+        bloco.IsSelected = true;
+        BlocoMemoriaSelecionado = bloco;
+    }
+
     private void GerarMapaMemoria(ProcessoInfo? processoAtualizado)
     {
         MapaMemoriaSimulado.Clear();
+        BlocoMemoriaSelecionado = null;
 
         if (processoAtualizado == null || processoAtualizado.NumPaginas <= 0)
         {
@@ -134,21 +148,31 @@ public partial class MainWindowViewModel : ViewModelBase
             var info = new MemoryBlockInfo();
             // Determinando o tipo da página
             double sorteio = rnd.NextDouble();
+            string conteudoHexBase = rnd.Next(1000000, 9999999).ToString("X");
             
             if (i < 5) 
             {
                 info.CorHex = "#1976D2"; // Code Segments (.text)
+                info.Tipo = "Segmento de Código (.text)";
                 info.ToolTip = $"Page {i} - Block: Code / Executable";
+                info.ConteudoSimulado = $"0x{conteudoHexBase}00 : 48 83 EC 28 48 8B 05 31 ...\n0x{conteudoHexBase}10 : 48 89 44 24 18 31 C0 89 ...\n0x{conteudoHexBase}20 : 0D F5 13 00 00 E8 74 F1 ...\n\n(Instruções executáveis do processo)";
             }
             else if (sorteio > razaoVirtualVsFisica)
             {
                 info.CorHex = "#424242"; // Paged Out / Unmapped
+                info.Tipo = "Página Ausente (Paged-Out)";
                 info.ToolTip = $"Page {i} - Status: Paged Out (Disco)";
+                info.ConteudoSimulado = $"(PAGE FAULT)\n\nO conteúdo deste bloco não está presente fisicamente na Memória RAM neste momento.\nEncontra-se em Swap ou arquivo de paginação do Sistema Operacional.";
             }
             else
             {
                 info.CorHex = "#388E3C"; // Resident Heap / Stack in RAM
+                info.Tipo = "Segmento de Dados (Heap/Stack)";
                 info.ToolTip = $"Page {i} - Status: RAM Resident (Working Set)";
+                
+                string randData1 = rnd.Next(10, 99).ToString("X2");
+                string randData2 = rnd.Next(10, 99).ToString("X2");
+                info.ConteudoSimulado = $"0x{conteudoHexBase}00 : 00 00 00 00 {randData1} {randData2} 00 00\n...\nAlocação Dinâmica ou Pilha Ativa.\nPáginas presentes na contagem do Working Set físico.";
             }
             
             MapaMemoriaSimulado.Add(info);
