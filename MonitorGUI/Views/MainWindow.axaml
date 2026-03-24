@@ -6,7 +6,6 @@
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
         x:Class="MonitorGUI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Icon="/Assets/avalonia-logo.ico"
         Title="Monitor de Processos: Visualização Mestre-Detalhe (Threads)"
         Background="#1E1E1E">
 
