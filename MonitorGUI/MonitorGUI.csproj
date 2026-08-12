@@ -1,15 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <!-- Permite que os testes exercitem diretamente métodos internal (ex.: MainWindowViewModel.ConstruirBlocos)
+       sem precisar de um Application/Dispatcher Avalonia inicializado. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SO.Monitor.Testes" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,5 +27,14 @@
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+  </ItemGroup>
+
+  <!-- Apresentação referencia Aplicação e Domínio; Infraestrutura entra apenas
+       porque este projeto é o composition root (montagem da injeção de dependência). -->
+  <ItemGroup>
+    <ProjectReference Include="..\src\SO.Monitor.Dominio\SO.Monitor.Dominio.csproj" />
+    <ProjectReference Include="..\src\SO.Monitor.Aplicacao\SO.Monitor.Aplicacao.csproj" />
+    <ProjectReference Include="..\src\SO.Monitor.Infraestrutura\SO.Monitor.Infraestrutura.csproj" />
   </ItemGroup>
 </Project>

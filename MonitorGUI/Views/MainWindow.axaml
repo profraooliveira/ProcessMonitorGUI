@@ -1,17 +1,45 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:MonitorGUI.ViewModels"
+        xmlns:dt="using:MonitorGUI.DesignTime"
+        xmlns:conv="using:MonitorGUI.Converters"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
+        mc:Ignorable="d" d:DesignWidth="1300" d:DesignHeight="850"
         x:Class="MonitorGUI.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="Monitor de Processos: Visualização Mestre-Detalhe (Threads)"
+        Title="Monitor de Processos: Visualização Mestre-Detalhe (Threads e Memória)"
         Background="#1E1E1E">
 
     <Design.DataContext>
-        <vm:MainWindowViewModel/>
+        <dt:DesignTimeMainWindowViewModel/>
     </Design.DataContext>
+
+    <Window.Resources>
+        <conv:BytesLegiveisConverter x:Key="BytesLegiveisConverter"/>
+        <conv:NuloParaTextoConverter x:Key="NuloParaTextoConverter"/>
+        <conv:TipoDeRegiaoParaCorConverter x:Key="TipoDeRegiaoParaCorConverter"/>
+    </Window.Resources>
+
+    <Window.Styles>
+        <!-- Estilos do bloco de memória: movidos do DataTemplate inline (onde viviam antes) para
+             cá, como estilos do controle. A seleção do bloco usa a classe "selecionado", ligada
+             via Classes.selecionado="{Binding IsSelected}" — nada de BorderThickness bindado a
+             um bool via ObjectConverters.IsNull, que nunca fez sentido. -->
+        <Style Selector="Button.bloco-memoria">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#222222"/>
+            <Setter Property="CornerRadius" Value="2"/>
+        </Style>
+        <Style Selector="Button.bloco-memoria:pointerover /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="White"/>
+        </Style>
+        <Style Selector="Button.bloco-memoria.selecionado">
+            <Setter Property="BorderBrush" Value="White"/>
+            <Setter Property="BorderThickness" Value="2"/>
+        </Style>
+    </Window.Styles>
 
     <Grid RowDefinitions="Auto, *, Auto" Margin="10">
         <!-- Header / Toolbar -->
@@ -21,56 +49,54 @@
                     <TextBlock Text="MONITOR DE PROCESSOS E THREADS" FontSize="20" FontWeight="Bold" Foreground="White"/>
                     <TextBlock Text="Com Master-Detail em tempo real" FontSize="14" Foreground="#CCCCCC"/>
                 </StackPanel>
-                
+
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="0,0,20,0">
-                    <TextBlock Text="Tipo:" VerticalAlignment="Center" Foreground="White"/>
+                    <TextBlock Text="Perfil:" VerticalAlignment="Center" Foreground="White"/>
                     <ComboBox ItemsSource="{Binding OpcoesFiltro}" SelectedItem="{Binding FiltroSelecionado}" Width="130" Background="#3E3E42" Foreground="White" />
-                    
+
                     <TextBlock Text="Limite:" VerticalAlignment="Center" Foreground="White" Margin="10,0,0,0"/>
                     <ComboBox ItemsSource="{Binding OpcoesLimite}" SelectedItem="{Binding LimiteSelecionado}" Width="80" Background="#3E3E42" Foreground="White"/>
-                    
+
                     <TextBlock Text="Ciclo (ms):" VerticalAlignment="Center" Foreground="White" Margin="10,0,0,0"/>
                     <TextBlock Text="{Binding IntervalMs}" VerticalAlignment="Center" FontWeight="Bold" Foreground="#42A5F5" Width="50"/>
                     <Button Command="{Binding DecreaseIntervalCommand}" Content="-" Width="30" HorizontalContentAlignment="Center"/>
                     <Button Command="{Binding IncreaseIntervalCommand}" Content="+" Width="30" HorizontalContentAlignment="Center"/>
                 </StackPanel>
-                
+
                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
                     <Button Content="Iniciar Monitor" Command="{Binding StartMonitoringCommand}"
-                            Background="#4CAF50" Foreground="White" FontWeight="Bold"
-                            IsEnabled="{Binding !IsMonitoring}"/>
+                            Background="#4CAF50" Foreground="White" FontWeight="Bold"/>
                     <Button Content="Pausar" Command="{Binding StopMonitoringCommand}"
-                            Background="#F44336" Foreground="White" FontWeight="Bold"
-                            IsEnabled="{Binding IsMonitoring}"/>
+                            Background="#F44336" Foreground="White" FontWeight="Bold"/>
                 </StackPanel>
             </Grid>
         </Border>
 
         <!-- Main Content (Master-Detail) -->
         <Grid Grid.Row="1" RowDefinitions="*, 5, *">
-            
+
             <!-- Process List (Master) -->
             <Border Grid.Row="0" Background="#252526" CornerRadius="8" Padding="10">
                 <Grid RowDefinitions="Auto, *">
-                    <TextBlock Grid.Row="0" Text="LISTA DE PROCESSOS (Selecione um para ver as Threads)" FontSize="16" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
-                    
+                    <TextBlock Grid.Row="0" Text="LISTA DE PROCESSOS (Selecione um para ver as Threads e o Mapa de Memória)" FontSize="16" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+
                     <!-- DataGrid Mestre -->
-                    <DataGrid Grid.Row="1" ItemsSource="{Binding Processos}" SelectedItem="{Binding ProcessoSelecionado}" 
+                    <DataGrid x:Name="GradeDeProcessos" Grid.Row="1" ItemsSource="{Binding Processos}" SelectedItem="{Binding ProcessoSelecionado}"
                               AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
                               GridLinesVisibility="All" BorderThickness="1" BorderBrush="#333333">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="PID" Binding="{Binding Pid}" />
-                            <DataGridTextColumn Header="Nome do Processo" Binding="{Binding Nome}" />
-                            <DataGridTextColumn Header="Classificação" Binding="{Binding Classificacao}" />
-                            <DataGridTextColumn Header="% CPU" Binding="{Binding PorcentagemCPU}" />
-                            <DataGridTextColumn Header="Handles" Binding="{Binding HandleCount}" />
-                            <DataGridTextColumn Header="Threads Qt." Binding="{Binding ThreadCount}" />
-                            <DataGridTextColumn Header="Pri. Base" Binding="{Binding PrioridadeBase}" />
-                            <DataGridTextColumn Header="Classe Prioridade" Binding="{Binding ClassePrioridade}" />
-                            <DataGridTextColumn Header="Memória RAM" Binding="{Binding WorkingSetFormatado}" />
-                            <DataGridTextColumn Header="Páginas(4K)" Binding="{Binding NumPaginas}" />
-                            <DataGridTextColumn Header="Endereço V. Início" Binding="{Binding MemoriaInicio}" FontFamily="Monospace" />
-                            <DataGridTextColumn Header="Endereço V. Fim" Binding="{Binding MemoriaFim}" FontFamily="Monospace" />
+                            <DataGridTextColumn Header="Nome do Processo" Binding="{Binding Nome}" Width="180" />
+                            <DataGridTextColumn Header="Estado" Binding="{Binding EstadoProcessoTexto}" />
+                            <DataGridTextColumn Header="Perfil de Execução" Binding="{Binding PerfilTexto}" />
+                            <DataGridTextColumn Header="% CPU" Binding="{Binding PorcentagemCpu, StringFormat='{}{0:F1}%'}" />
+                            <DataGridTextColumn Header="Threads" Binding="{Binding ThreadCount}" />
+                            <DataGridTextColumn Header="Handles" Binding="{Binding HandleCount, Converter={StaticResource NuloParaTextoConverter}}" />
+                            <DataGridTextColumn Header="Memória Residente" Binding="{Binding MemoriaResidente, Converter={StaticResource BytesLegiveisConverter}}" />
+                            <!-- Cabeçalho desta coluna é atualizado em código (MainWindow.axaml.cs) para
+                                 refletir o tamanho de página REAL da amostra ("Páginas (16 KiB)"). -->
+                            <DataGridTextColumn Header="Páginas" Binding="{Binding Paginas, Converter={StaticResource NuloParaTextoConverter}}" />
+                            <DataGridTextColumn Header="Início da Execução" Binding="{Binding InicioDaExecucao, StringFormat='{}{0:HH:mm:ss}', TargetNullValue='—'}" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </Grid>
@@ -81,27 +107,39 @@
 
             <!-- Detail Section (Threads + Memory Map) -->
             <Grid Grid.Row="2" ColumnDefinitions="2*, 5, 1*">
-                
+
                 <!-- Thread List (Detail Left) -->
                 <Border Grid.Column="0" Background="#1E1E1E" CornerRadius="8" Padding="10" BorderBrush="#333333" BorderThickness="1">
-                    <Grid RowDefinitions="Auto, *">
+                    <Grid RowDefinitions="Auto, *, Auto">
                         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
                             <TextBlock Text="THREADS DO PROCESSO: " FontSize="16" FontWeight="Bold" Foreground="#42A5F5"/>
                             <TextBlock Text="{Binding ProcessoSelecionado.Nome, TargetNullValue='(NENHUM SELECIONADO)'}" FontSize="16" FontWeight="Bold" Foreground="#FFCA28"/>
                             <TextBlock Text="{Binding ProcessoSelecionado.Pid, StringFormat=' [PID: {0}]', TargetNullValue=''}" FontSize="16" Foreground="#AAAAAA"/>
                         </StackPanel>
-                        
+
                         <!-- DataGrid Detalhe -->
-                        <DataGrid Grid.Row="1" ItemsSource="{Binding ThreadsSelecionadas}" 
+                        <DataGrid Grid.Row="1" ItemsSource="{Binding ThreadsSelecionadas}"
                                   AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single"
                                   GridLinesVisibility="All" BorderThickness="1" BorderBrush="#333333">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="TID" Binding="{Binding Id}" />
-                                <DataGridTextColumn Header="Estado" Binding="{Binding Estado}" />
-                                <DataGridTextColumn Header="Pri" Binding="{Binding Prioridade}" />
-                                <DataGridTextColumn Header="Motivo UNIX" Binding="{Binding WaitReason}" Width="*" />
+                                <DataGridTemplateColumn Header="TID">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate x:DataType="vm:ThreadItemViewModel">
+                                            <TextBlock Text="{Binding TidTexto}" ToolTip.Tip="{Binding TidTooltip}"
+                                                       VerticalAlignment="Center" Margin="4,0"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Estado" Binding="{Binding EstadoTexto}" />
+                                <DataGridTextColumn Header="Motivo do bloqueio" Binding="{Binding MotivoDeBloqueioTexto}" Width="*" />
+                                <DataGridTextColumn Header="Prioridade" Binding="{Binding Prioridade, Converter={StaticResource NuloParaTextoConverter}}" />
+                                <DataGridTextColumn Header="Tempo de CPU" Binding="{Binding TempoDeCpu, StringFormat='{}{0:mm\:ss\.fff}', TargetNullValue='—'}" />
                             </DataGrid.Columns>
                         </DataGrid>
+
+                        <!-- Legenda didática dos estados de thread (Tanenbaum) -->
+                        <TextBlock Grid.Row="2" FontSize="10" Foreground="#AAAAAA" TextWrapping="Wrap" Margin="0,8,0,0"
+                                   Text="Pronta = aguardando CPU · Executando = na CPU · Bloqueada = aguardando evento/E-S · Terminada = não será mais escalonada (modelo de estados de processo/thread de Tanenbaum)"/>
                     </Grid>
                 </Border>
 
@@ -110,62 +148,90 @@
 
                 <!-- Memory Map View (Detail Right) -->
                 <Border Grid.Column="2" Background="#1E1E1E" CornerRadius="8" Padding="10" BorderBrush="#333333" BorderThickness="1">
-                    <Grid RowDefinitions="Auto, *, Auto">
-                        <StackPanel Grid.Row="0" Margin="0,0,0,10">
-                            <TextBlock Text="MAPA DE MEMÓRIA SIMULADO" FontSize="14" FontWeight="Bold" Foreground="#66BB6A"/>
-                            <TextBlock Text="(Distribuição RAM vs PageFault)" FontSize="10" Foreground="#AAAAAA"/>
+                    <Grid RowDefinitions="Auto, Auto, *, Auto, Auto">
+                        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                            <!-- Rótulo obrigatório da origem: "MAPA DE MEMÓRIA REAL (medido do SO)" vs "MAPA SIMULADO (modo didático)" -->
+                            <TextBlock Text="{Binding RotuloOrigemDoMapa}" FontSize="13" FontWeight="Bold" Foreground="#66BB6A" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding MotivoDoFallbackTexto, StringFormat='Motivo: {0}'}" FontSize="10" Foreground="#FFB300" TextWrapping="Wrap"
+                                       IsVisible="{Binding MotivoDoFallbackTexto, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                         </StackPanel>
-                        
-                        <!-- ItemsControl rendered as WrapPanel for small squares -->
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,10">
-                            <ItemsControl ItemsSource="{Binding MapaMemoriaSimulado}">
+
+                        <Button Grid.Row="1" Content="Atualizar mapa" Command="{Binding AtualizarMapaCommand}"
+                                IsEnabled="{Binding ProcessoSelecionado, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                HorizontalAlignment="Left" Margin="0,0,0,8"/>
+
+                        <!-- Grade de blocos: cada bloco = uma região real de memória -->
+                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,0,10">
+                            <ItemsControl ItemsSource="{Binding BlocosDeMemoria}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
                                         <WrapPanel ItemWidth="20" ItemHeight="20" />
                                     </ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
-                                    <DataTemplate>
-                                        <Button Width="18" Height="18" Margin="1" 
-                                                Background="{Binding CorHex}"
-                                                ToolTip.Tip="{Binding ToolTip}"
-                                                Command="{ReflectionBinding $parent[Window].DataContext.SelecionarBlocoCommand}"
-                                                CommandParameter="{Binding}"
-                                                CornerRadius="2"
-                                                BorderThickness="{Binding IsSelected, Converter={x:Static ObjectConverters.IsNull}}"
-                                                BorderBrush="White">
-                                            <!-- Highlight border if IsSelected is true; simplified for pure Avalonia by just trusting Selection -->
-                                            <Button.Styles>
-                                                <Style Selector="Button">
-                                                    <Setter Property="Padding" Value="0"/>
-                                                    <Setter Property="BorderThickness" Value="1"/>
-                                                    <Setter Property="BorderBrush" Value="#222222"/>
-                                                </Style>
-                                                <Style Selector="Button:pointerover /template/ ContentPresenter">
-                                                    <Setter Property="BorderBrush" Value="#FFFFFF"/>
-                                                </Style>
-                                            </Button.Styles>
-                                        </Button>
+                                    <DataTemplate x:DataType="vm:BlocoDeMemoriaViewModel">
+                                        <Button Width="18" Height="18" Margin="1"
+                                                Classes="bloco-memoria"
+                                                Classes.selecionado="{Binding IsSelected}"
+                                                Background="{Binding TipoDeRegiao, Converter={StaticResource TipoDeRegiaoParaCorConverter}}"
+                                                ToolTip.Tip="{Binding Rotulo}"
+                                                Command="{Binding SelecionarCommand}"/>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                         </ScrollViewer>
 
-                        <!-- Detalhes do Bloco Selecionado -->
-                        <Border Grid.Row="2" Background="#252526" BorderBrush="#333333" BorderThickness="1" CornerRadius="5" Padding="8" MinHeight="100">
-                            <StackPanel>
-                                <TextBlock Text="Detalhe do Bloco" FontWeight="Bold" Foreground="#42A5F5" Margin="0,0,0,5"/>
-                                <Grid IsVisible="{Binding BlocoMemoriaSelecionado, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding BlocoMemoriaSelecionado.Tipo}" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" Margin="0,0,0,5"/>
-                                        <TextBlock Text="{Binding BlocoMemoriaSelecionado.ConteudoSimulado}" FontFamily="Monospace" FontSize="11" Foreground="#CCCCCC" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                </Grid>
-                                <TextBlock IsVisible="{Binding BlocoMemoriaSelecionado, Converter={x:Static ObjectConverters.IsNull}}"
-                                           Text="Clique em um bloco de memória acima para ver o seu conteúdo simulado."
+                        <!-- Detalhes do Bloco Selecionado: dados REAIS (endereços, permissões, residência) -->
+                        <Border Grid.Row="3" Background="#252526" BorderBrush="#333333" BorderThickness="1" CornerRadius="5" Padding="8" MinHeight="110" Margin="0,0,0,8">
+                            <Grid>
+                                <StackPanel IsVisible="{Binding BlocoSelecionado, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                    <TextBlock Text="{Binding BlocoSelecionado.Rotulo}" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding BlocoSelecionado.FaixaHexTexto}" FontFamily="Monospace" FontSize="11" Foreground="#CCCCCC" Margin="0,4,0,0"/>
+                                    <TextBlock Text="{Binding BlocoSelecionado.PermissoesTexto, StringFormat='Permissões: {0}'}" FontSize="11" Foreground="#CCCCCC"/>
+                                    <TextBlock Text="{Binding BlocoSelecionado.ResidenteBytes, Converter={StaticResource BytesLegiveisConverter}, StringFormat='Residente: {0}'}" FontSize="11" Foreground="#CCCCCC"/>
+                                    <TextBlock Text="{Binding BlocoSelecionado.EmSwapBytes, Converter={StaticResource BytesLegiveisConverter}, StringFormat='Em swap: {0}'}" FontSize="11" Foreground="#CCCCCC"/>
+                                </StackPanel>
+                                <TextBlock IsVisible="{Binding BlocoSelecionado, Converter={x:Static ObjectConverters.IsNull}}"
+                                           Text="Clique em um bloco de memória acima para ver os dados reais da região."
                                            Foreground="#888888" TextWrapping="Wrap" FontStyle="Italic"/>
-                            </StackPanel>
+                            </Grid>
                         </Border>
+
+                        <!-- Legenda de cores do mapa -->
+                        <WrapPanel Grid.Row="4" Orientation="Horizontal">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
+                                <Border Width="10" Height="10" Background="{StaticResource CorRegiaoCodigo}" CornerRadius="2"/>
+                                <TextBlock Text="Código" FontSize="10" Foreground="#AAAAAA"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
+                                <Border Width="10" Height="10" Background="{StaticResource CorRegiaoDados}" CornerRadius="2"/>
+                                <TextBlock Text="Dados estáticos" FontSize="10" Foreground="#AAAAAA"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
+                                <Border Width="10" Height="10" Background="{StaticResource CorRegiaoHeap}" CornerRadius="2"/>
+                                <TextBlock Text="Heap" FontSize="10" Foreground="#AAAAAA"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
+                                <Border Width="10" Height="10" Background="{StaticResource CorRegiaoPilha}" CornerRadius="2"/>
+                                <TextBlock Text="Pilha" FontSize="10" Foreground="#AAAAAA"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
+                                <Border Width="10" Height="10" Background="{StaticResource CorRegiaoBiblioteca}" CornerRadius="2"/>
+                                <TextBlock Text="Biblioteca" FontSize="10" Foreground="#AAAAAA"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
+                                <Border Width="10" Height="10" Background="{StaticResource CorRegiaoArquivoMapeado}" CornerRadius="2"/>
+                                <TextBlock Text="Arquivo mapeado" FontSize="10" Foreground="#AAAAAA"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
+                                <Border Width="10" Height="10" Background="{StaticResource CorRegiaoReservada}" CornerRadius="2"/>
+                                <TextBlock Text="Reservada/em swap" FontSize="10" Foreground="#AAAAAA"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
+                                <Border Width="10" Height="10" Background="{StaticResource CorRegiaoOutra}" CornerRadius="2"/>
+                                <TextBlock Text="Outra" FontSize="10" Foreground="#AAAAAA"/>
+                            </StackPanel>
+                        </WrapPanel>
                     </Grid>
                 </Border>
             </Grid>

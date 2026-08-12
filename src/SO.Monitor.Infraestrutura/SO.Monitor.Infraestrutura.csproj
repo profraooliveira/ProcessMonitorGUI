@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Camada de Infraestrutura: adaptadores para as APIs reais de cada sistema
+    operacional (System.Diagnostics, /proc, vmmap/ps, P/Invoke Win32).
+  -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\SO.Monitor.Aplicacao\SO.Monitor.Aplicacao.csproj" />
+    <ProjectReference Include="..\SO.Monitor.Dominio\SO.Monitor.Dominio.csproj" />
+  </ItemGroup>
+
+  <!-- Permite que os testes exercitem diretamente os mapeadores internos (ex.: estado de thread). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SO.Monitor.Testes" />
+  </ItemGroup>
+
+</Project>

@@ -8,7 +8,23 @@
     <Application.DataTemplates>
         <local:ViewLocator/>
     </Application.DataTemplates>
-  
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <!-- Cores do mapa de memória, por TipoDeRegiao (SO.Monitor.Dominio.Enums.TipoDeRegiao).
+                 Vivem aqui como recursos nomeados para serem reutilizadas tanto pelo
+                 TipoDeRegiaoParaCorConverter quanto pela legenda de cores do mapa. -->
+            <SolidColorBrush x:Key="CorRegiaoCodigo" Color="#1976D2"/>         <!-- azul: código/.text -->
+            <SolidColorBrush x:Key="CorRegiaoDados" Color="#26A69A"/>         <!-- teal: dados estáticos -->
+            <SolidColorBrush x:Key="CorRegiaoHeap" Color="#43A047"/>          <!-- verde: heap -->
+            <SolidColorBrush x:Key="CorRegiaoPilha" Color="#FFB300"/>         <!-- âmbar: pilha -->
+            <SolidColorBrush x:Key="CorRegiaoBiblioteca" Color="#8E24AA"/>    <!-- roxo: biblioteca compartilhada -->
+            <SolidColorBrush x:Key="CorRegiaoArquivoMapeado" Color="#00ACC1"/><!-- ciano: arquivo mapeado -->
+            <SolidColorBrush x:Key="CorRegiaoReservada" Color="#616161"/>     <!-- cinza: reservada/em swap -->
+            <SolidColorBrush x:Key="CorRegiaoOutra" Color="#9E9E9E"/>         <!-- neutro: outra -->
+        </ResourceDictionary>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
         <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml"/>

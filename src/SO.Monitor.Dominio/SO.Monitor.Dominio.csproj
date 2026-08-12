@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Camada de Domínio: o vocabulário de Sistemas Operacionais (Tanenbaum) como tipos.
+    Este projeto NÃO referencia nenhum pacote nem projeto — o compilador garante
+    que o domínio permaneça puro.
+  -->
+
+</Project>

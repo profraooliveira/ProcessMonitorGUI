@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Camada de Aplicação: casos de uso e orquestração do monitoramento. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\SO.Monitor.Dominio\SO.Monitor.Dominio.csproj" />
+  </ItemGroup>
+
+</Project>

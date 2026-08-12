@@ -1,47 +1,58 @@
-# Process Monitor GUI 🚀 (Avalonia .NET)
+# Monitor de Processos, Threads e Memória 🖥️ (Avalonia · .NET 8)
 
-Um monitor de processos C# nativo e multiplataforma com base em **Avalonia UI** e arquitetado com princípios diretos de **Clean Architecture (MVVM)**, **SOLID** e separação de lógica focada em desempenho em tempo real.
+Monitor de processos **didático e multiplataforma** (macOS, Linux e Windows), construído para ensinar os conceitos de **Sistemas Operacionais** de Tanenbaum (*Modern Operating Systems*) com **dados reais do kernel** — não com simulações disfarçadas de medição.
 
-![Screenshot de Exemplo do Monitor (Recomendado adicionar depois)](https://via.placeholder.com/800x400.png?text=Monitor+de+Processos+(Avalonia))
+O projeto também serve de estudo de caso de arquitetura: **DDD** em camadas com fronteiras verificadas pelo compilador, **SOLID**, **GRASP** e Design Patterns aplicados apenas onde pagam o próprio custo.
 
-## Recursos Principais 🔥
+## O que ele mostra (e de onde vem cada dado) 🔬
 
-Este repositório foca em trazer a rastreabilidade interna do `System.Diagnostics` (antes disponível apenas em modo Console) para uma interface rica com **Dark Mode**:
+| Painel | Dado | Fonte real |
+|---|---|---|
+| Lista de processos | PID, nome, estado (modelo de Tanenbaum), **% CPU por delta entre amostras** (como top/htop), memória residente (working set), páginas no **tamanho de página real** do sistema (16 KiB em Apple Silicon), threads, handles | `System.Diagnostics` + cálculo por amostragem |
+| Classificação | **CPU-bound / I-O-bound / Indeterminado**, com o critério explicado (política de bursts de Tanenbaum, trocável via Strategy) | Métricas medidas na amostra |
+| Threads do processo selecionado | TID, estado (Pronta/Executando/Bloqueada/Terminada), **motivo do bloqueio**, prioridade, tempo de CPU | macOS: `ps -M` · Linux: `/proc/<pid>/task/*/stat` · Windows: `ThreadState`/`WaitReason` nativos |
+| Mapa de memória | **Regiões reais** com endereços virtuais, tipo (código, heap, pilha, biblioteca…), permissões, bytes residentes vs em swap | macOS: `vmmap` · Linux: `/proc/<pid>/smaps` · Windows: `VirtualQueryEx` + `QueryWorkingSetEx` |
 
-* **Lista Mestre-Detalhe Independente:** 
-  * Os processos são lidos no topo. Ao clicar, suas respectivas *Threads* são esmiuçadas no painel inferior.
-* **Mapa de Memória Simulado:** 
-  * Um widget visual renderizado em tempo real simulando a alocação de páginas (*Code Segments*, *Resident RAM*, *Paged Out*) baseado na heurística do Processo alvo.
-* **Cálculos Reativos:**  
-  * Filtros por estado **CPU-Bound** (Maior uso de cálculos em processador) vs **I/O-Bound** (Alto enfileiramento de disco/rede - Handles).
-  * Informações de Endereços base de Memória (Virtual Fim e Virtual Início) exibidas em Hexadecimal Limpo (`0x...`).
-  * Atualização dinâmica sem travamento da UI via `Dispatcher.UIThread` e `CancellationToken` (Polling customizável entre 500ms e 10s).
-* **Tratamento Específico para macOS/Unix:**
-  * Lógica resiliente para _WaitReasons_ blindada com as respostas limitantes nativas do Kernel _Darwin_ ao tentar ler perfis protegidos em modo Usuário.
+### Honestidade como princípio didático
 
-## Tecnologias e Padrões 📚
+- Quando o kernel **nega acesso** (processos protegidos por SIP/hardened runtime, PCB de outros usuários), isso não é engolido: aparece como 🔒 e no contador *"N processos protegidos pelo kernel"* — proteção de memória e privilégio são conteúdo da disciplina, não ruído.
+- Quando o mapa real não está disponível, o app cai para um **simulador de paginação rotulado** ("MAPA SIMULADO — modo didático"), nunca para uma simulação com cara de medição.
+- Quando a plataforma não expõe um dado (ex.: handles no macOS), a classificação responde **Indeterminado** em vez de chutar.
 
-* **C# 12 / .NET 8.0**
-* **Avalonia UI (v11+)** para o renderizador gráfico (Suporte nativo pra macOS, Windows e Linux).
-* **CommunityToolkit.Mvvm** para binds reativos eficientes nas *ViewModels*.
-* **Clean Architecture** (Simplificada para camada de visão por hora, organizada solidamente em `Models`, `Services`, `ViewModels` e `Views`).
+## Arquitetura 📐
 
-## Configurando e Executando Localmente 🛠
+```
+SO.Monitor.Dominio          → nenhuma referência (o compilador prova a pureza)
+SO.Monitor.Aplicacao        → Dominio
+SO.Monitor.Infraestrutura   → Aplicacao, Dominio
+MonitorGUI (Apresentação)   → Aplicacao, Dominio (+ Infra apenas como composition root)
+SO.Monitor.Testes           → todas (xUnit)
+```
 
-Como utilizamos Avalonia UI, a execução é indolor em qualquer SO.
+- **Domínio** — o vocabulário de Tanenbaum como tipos: value objects (`Pid`, `TamanhoBytes`, `TamanhoPagina`, `EnderecoVirtual`, `FaixaDeEnderecos`), enums canônicos de estado de processo/thread, `Leitura<T>` (leitura falível que distingue "zero" de "acesso negado"), agregado `Processo`, políticas de classificação (Strategy + Chain of Responsibility) e o `SimuladorDePaginacao` (Pure Fabrication).
+- **Aplicação** — casos de uso finos (`ObterAmostraClassificada`, `ObterMapaDeMemoria` com fallback rotulado) e `MonitorDeProcessos` (`PeriodicTimer` + `IAsyncEnumerable`, sem `Task.Run` solto).
+- **Infraestrutura** — adapters por plataforma escolhidos uma única vez por Factory Method: parsing de `vmmap`/`ps` no macOS, leitura de `/proc` no Linux, P/Invoke Win32 no Windows; parsers puros e testados com fixtures reais.
+- **Apresentação** — Avalonia 11 + MVVM (CommunityToolkit), injeção de dependência por construtor, converters (colunas ordenam pelo valor numérico), reconciliação da lista por PID (seleção e scroll sobrevivem ao ciclo).
+
+## Executando 🛠
 
 1. Instale o [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
-2. Clone o repositório:
-   ```bash
-   git clone https://github.com/profraooliveira/ProcessMonitorGUI.git
-   cd ProcessMonitorGUI
-   ```
-3. Restaure as dependências e rode o projeto:
-   ```bash
-   dotnet run
-   ```
+2. Clone e rode:
 
-*NOTA PARA USUÁRIOS UNIX (macOS/Linux):* Lembre-se que alguns processos de Sistema (Kernel Task, etc.) possuem bloqueio de _SIP/Ring 0_, então suas informações de `Private Memory` e _Threads Wait Reason_ retornarão mensagens tratadas de "Sem Permissão" a não ser que você execute o processo como _sudo_ e eleve a _App_. 
+```bash
+git clone https://github.com/profraooliveira/ProcessMonitorGUI.git
+cd ProcessMonitorGUI
+dotnet run --project MonitorGUI/MonitorGUI.csproj
+```
+
+Testes:
+
+```bash
+dotnet test
+```
+
+*Nota (macOS/Linux):* processos do sistema são protegidos pelo kernel — o app mostra essas negações explicitamente (🔒), o que é intencional e parte da aula. Não é necessário `sudo` para monitorar os processos do seu próprio usuário.
 
 ## Autor
+
 Mantido e desenvolvido por Prof. Raoni Oliveira ([@profraonioliveira](https://github.com/profraooliveira)).
