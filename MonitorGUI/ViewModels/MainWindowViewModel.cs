@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Globalization;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -19,14 +21,20 @@ namespace MonitorGUI.ViewModels;
 /// </summary>
 public partial class MainWindowViewModel : ViewModelBase, IDisposable
 {
-    /// <summary>Regiões de memória demais poluem o mapa visual; as maiores por extensão ganham bloco próprio, o resto é agregado.</summary>
-    private const int MaximoDeRegioesExibidas = 120;
-
     private readonly MonitorDeProcessos _monitorDeProcessos;
     private readonly ObterMapaDeMemoria _obterMapaDeMemoria;
     private readonly IFonteDeDetalhesDeThreads _fonteDeDetalhesDeThreads;
 
     private readonly Dictionary<int, ProcessoItemViewModel> _itensPorPid = new();
+    private readonly Dictionary<long, ThreadItemViewModel> _itensPorTid = new();
+
+    /// <summary>
+    /// PID cujas threads estão em <see cref="ThreadsSelecionadas"/> no momento. Ao trocar de
+    /// processo, a reconciliação por TID precisa de um reset explícito ANTES de reconciliar —
+    /// sem isso, no macOS (onde TIDs são posicionais 0..N para qualquer processo), a troca de
+    /// processo faria a grade "morphing" os itens do processo antigo em vez de trocar de fato.
+    /// </summary>
+    private int? _pidDasThreadsExibidas;
 
     private CancellationTokenSource? _cts;
     private CancellationTokenSource? _cancelamentoSelecao;
@@ -40,7 +48,34 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     /// </summary>
     private Task? _loopTask;
 
+    /// <summary>
+    /// CTS/Task do laço de auto-refresh do mapa de memória (<see cref="ExecutarLoopDoMapaAsync"/>)
+    /// — deliberadamente SEPARADO de <see cref="_cts"/>/<see cref="_loopTask"/>: o custo de
+    /// <c>vmmap</c> (~1-1,5s medido) é ~30x o de uma coleta de processos, então a cadência do mapa
+    /// não pode ser acoplada à do "Ciclo (ms)" (que pode ser configurado tão baixo quanto 500ms).
+    /// </summary>
+    private CancellationTokenSource? _ctsMapa;
+
+    private Task? _loopDoMapaTask;
+
+    /// <summary>
+    /// Arbitra entre o tick do laço de auto-refresh e uma ação do usuário (botão "Atualizar
+    /// mapa", troca de seleção) para nunca disparar dois <c>vmmap</c> concorrentes: o tick usa
+    /// <c>WaitAsync(0)</c> e PULA se ocupado (não vale a pena enfileirar uma leitura para um
+    /// estado que o usuário já passou); a ação do usuário usa <c>WaitAsync(token)</c> e ESPERA
+    /// sua vez, porque ela tem prioridade sobre o laço automático.
+    /// </summary>
+    private readonly SemaphoreSlim _semaforoDoMapa = new(1, 1);
+
     private TamanhoPagina _tamanhoDePaginaAtual = TamanhoPagina.Kib4;
+
+    /// <summary>
+    /// Últimas regiões brutas lidas do processo selecionado (antes do corte de exibição) — cache
+    /// local para que trocar <see cref="QuantidadeDeBlocosSelecionada"/> apenas re-fatie
+    /// localmente via <see cref="ConstruirBlocos"/>, sem disparar uma nova leitura de <c>vmmap</c>
+    /// (medida em ~1-1,5s por chamada — cara demais para refazer só por causa do seletor).
+    /// </summary>
+    private IReadOnlyList<RegiaoDeMemoria> _ultimasRegioesDoMapa = [];
 
     public ObservableCollection<ProcessoItemViewModel> Processos { get; } = new();
 
@@ -49,6 +84,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     public ObservableCollection<BlocoDeMemoriaViewModel> BlocosDeMemoria { get; } = new();
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AtualizarMapaCommand))]
     private ProcessoItemViewModel? _processoSelecionado;
 
     [ObservableProperty]
@@ -89,6 +125,29 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     [ObservableProperty]
     private int _limiteSelecionado = 15;
 
+    /// <summary>120 preserva o comportamento anterior ao seletor (feature puramente aditiva).</summary>
+    public int[] OpcoesQuantidadeDeBlocos { get; } = [30, 60, 120, 250, 500];
+
+    [ObservableProperty]
+    private int _quantidadeDeBlocosSelecionada = 120;
+
+    [ObservableProperty]
+    private bool _atualizacaoAutomaticaDoMapa = true;
+
+    /// <summary>Mínimo de 2s: mesmo nesse piso, com vmmap custando até ~1,5s, já é ~75% de duty cycle de um subprocesso pesado.</summary>
+    public int[] OpcoesIntervaloDoMapaEmSegundos { get; } = [2, 5, 10, 30];
+
+    [ObservableProperty]
+    private int _intervaloDoMapaEmSegundos = 5;
+
+    /// <summary>Duração medida da última leitura de mapa (ex.: "1,2 s") — resposta honesta (medição, não texto) para "por que o mapa não atualiza tão rápido quanto a lista".</summary>
+    [ObservableProperty]
+    private string? _duracaoDaUltimaLeituraDoMapa;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AtualizarMapaCommand))]
+    private bool _mapaEmAtualizacao;
+
     public MainWindowViewModel(
         MonitorDeProcessos monitorDeProcessos,
         ObterMapaDeMemoria obterMapaDeMemoria,
@@ -104,6 +163,8 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     private bool PodeParar => IsMonitoring;
 
+    private bool PodeAtualizarMapa => ProcessoSelecionado is not null && !MapaEmAtualizacao;
+
     [RelayCommand(CanExecute = nameof(PodeIniciar))]
     private async Task StartMonitoringAsync() => await ReiniciarLoopAsync();
 
@@ -111,6 +172,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private void StopMonitoring()
     {
         _cts?.Cancel();
+        _ctsMapa?.Cancel();
         IsMonitoring = false;
         StatusMessage = "Monitor pausado.";
     }
@@ -129,8 +191,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         await ReiniciarSeMonitorandoAsync();
     }
 
-    /// <summary>Botão explícito "Atualizar mapa": o mapa de memória NÃO é regenerado a cada tick do monitor, só aqui e na troca de seleção.</summary>
-    [RelayCommand]
+    /// <summary>
+    /// Botão explícito "Atualizar mapa": lê sob demanda, mesmo com auto-refresh ligado — a ação
+    /// do usuário tem prioridade sobre o laço automático (<see cref="ExecutarLoopDoMapaAsync"/>),
+    /// arbitrada pelo <see cref="_semaforoDoMapa"/> com <c>WaitAsync(token)</c> (espera sua vez,
+    /// nunca é pulada como o tick do laço seria). Nenhum <c>await</c> aqui usa <c>ConfigureAwait(false)</c>
+    /// — mesmo motivo documentado em <see cref="ReiniciarLoopAsync"/>: este comando é sempre
+    /// disparado a partir da UI thread, e queremos retomar nela após cada await para que
+    /// <see cref="MapaEmAtualizacao"/> possa ser atribuída direto, sem <c>Dispatcher.UIThread</c>
+    /// explícito (que exigiria um laço de dispatcher rodando — inexistente nos testes deste VM).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(PodeAtualizarMapa))]
     private async Task AtualizarMapaAsync()
     {
         if (ProcessoSelecionado is null)
@@ -142,7 +213,18 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             // se o usuário trocar de processo enquanto este mapa ainda está carregando, o botão
             // "Atualizar mapa" não deve deixar um resultado obsoleto sobrescrever a seleção nova.
             var token = _cancelamentoSelecao?.Token ?? CancellationToken.None;
-            await AtualizarMapaDeMemoriaAsync(ProcessoSelecionado, token).ConfigureAwait(false);
+
+            await _semaforoDoMapa.WaitAsync(token);
+            try
+            {
+                MapaEmAtualizacao = true;
+                await AtualizarMapaDeMemoriaAsync(ProcessoSelecionado, token);
+            }
+            finally
+            {
+                _semaforoDoMapa.Release();
+                MapaEmAtualizacao = false;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -166,6 +248,28 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     partial void OnFiltroSelecionadoChanged(OpcaoFiltro value) => _ = ReiniciarSeMonitorandoAsync();
 
     partial void OnLimiteSelecionadoChanged(int value) => _ = ReiniciarSeMonitorandoAsync();
+
+    /// <summary>Liga/desliga o auto-refresh do mapa; descartada pelo mesmo motivo documentado acima. ReiniciarLoopDoMapaAsync é no-op seguro se o monitor não estiver rodando.</summary>
+    partial void OnAtualizacaoAutomaticaDoMapaChanged(bool value) => _ = ReiniciarLoopDoMapaAsync();
+
+    partial void OnIntervaloDoMapaEmSegundosChanged(int value) => _ = ReiniciarLoopDoMapaAsync();
+
+    /// <summary>
+    /// Troca a quantidade de blocos NUNCA busca dado novo — só re-fatia <see cref="_ultimasRegioesDoMapa"/>
+    /// (já em memória) com o novo corte e reconcilia a exibição. Síncrono de propósito: evita
+    /// buscar um novo mapa (caro, ~1-1,5s de <c>vmmap</c>) só porque o usuário quer ver mais/menos blocos.
+    /// </summary>
+    partial void OnQuantidadeDeBlocosSelecionadaChanged(int value)
+    {
+        if (_ultimasRegioesDoMapa.Count == 0)
+            return;
+
+        var blocos = ConstruirBlocos(_ultimasRegioesDoMapa, value, SelecionarBloco);
+        ReconciliadorDeBlocosDeMemoria.Reconciliar(BlocosDeMemoria, blocos);
+
+        if (BlocoSelecionado is not null && !BlocosDeMemoria.Contains(BlocoSelecionado))
+            BlocoSelecionado = null;
+    }
 
     /// <summary>
     /// Ao trocar de processo selecionado, threads e mapa de memória são recarregados sob
@@ -210,7 +314,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         BlocoSelecionado = bloco;
     }
 
-    private CriteriosDeAmostragem ObterCriterios() => new(FiltroSelecionado.Perfil, LimiteSelecionado);
+    /// <summary>
+    /// PidFixado mantém o processo selecionado visível mesmo que sua %CPU caia fora do corte por
+    /// "Limite" numa rodada — sem isso, a lista removeria e (se voltasse) recriaria o item com
+    /// nova instância a cada oscilação, derrubando a seleção sem o usuário ter feito nada.
+    /// </summary>
+    private CriteriosDeAmostragem ObterCriterios() =>
+        new(FiltroSelecionado.Perfil, LimiteSelecionado, ProcessoSelecionado?.Processo.Pid);
 
     /// <summary>
     /// Cancela o laço anterior (se algum estiver rodando) e AGUARDA ele terminar antes de disparar
@@ -241,12 +351,85 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         // escapar sem passar por StatusMessage). Guardada em _loopTask (não descartada de fato)
         // justamente para que o PRÓXIMO reinício possa aguardá-la.
         _loopTask = ExecutarLoopAsync(_cts.Token);
+
+        // "Iniciar Monitor" liga os dois laços juntos — "Pausar" (StopMonitoring) os pausa juntos.
+        await ReiniciarLoopDoMapaAsync();
     }
 
     private async Task ReiniciarSeMonitorandoAsync()
     {
         if (IsMonitoring)
             await ReiniciarLoopAsync();
+    }
+
+    /// <summary>
+    /// Mesmo trio Cancel→await→Dispose→new de <see cref="ReiniciarLoopAsync"/>, aplicado ao laço
+    /// do mapa. Só dispara se <see cref="AtualizacaoAutomaticaDoMapa"/> estiver ligado E o monitor
+    /// estiver rodando (<see cref="IsMonitoring"/>) — "Pausar" pausa tudo, e o previewer de
+    /// design-time (que nunca chama <c>StartMonitoringCommand</c>) nunca aciona <c>vmmap</c>.
+    /// </summary>
+    private async Task ReiniciarLoopDoMapaAsync()
+    {
+        _ctsMapa?.Cancel();
+
+        if (_loopDoMapaTask is not null)
+            await _loopDoMapaTask;
+
+        _ctsMapa?.Dispose();
+        _ctsMapa = null;
+        _loopDoMapaTask = null;
+
+        if (!IsMonitoring || !AtualizacaoAutomaticaDoMapa)
+            return;
+
+        _ctsMapa = new CancellationTokenSource();
+        _loopDoMapaTask = ExecutarLoopDoMapaAsync(_ctsMapa.Token);
+    }
+
+    /// <summary>
+    /// Laço próprio do mapa, com cadência DECOUPLED do "Ciclo (ms)" do laço de processos — o
+    /// custo real de <c>vmmap</c> (~1-1,5s, medido) é ~30x o de uma coleta de processos, então
+    /// não pode reaproveitar o mesmo temporizador. A cada tick, se há processo selecionado,
+    /// tenta o semáforo com <c>WaitAsync(0)</c>: se já houver uma leitura em voo (o próprio laço
+    /// ou o botão manual), PULA o tick — enfileirar uma leitura pra um estado que o usuário já
+    /// passou é puro desperdício de um subprocesso caro.
+    /// </summary>
+    private async Task ExecutarLoopDoMapaAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var temporizador = new PeriodicTimer(TimeSpan.FromSeconds(IntervaloDoMapaEmSegundos));
+
+            while (await temporizador.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var item = await Dispatcher.UIThread.InvokeAsync(() => ProcessoSelecionado);
+                if (item is null)
+                    continue;
+
+                if (!await _semaforoDoMapa.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+                    continue;
+
+                try
+                {
+                    await Dispatcher.UIThread.InvokeAsync(() => MapaEmAtualizacao = true);
+                    await AtualizarMapaDeMemoriaAsync(item, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _semaforoDoMapa.Release();
+                    await Dispatcher.UIThread.InvokeAsync(() => MapaEmAtualizacao = false);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelamento limpo (Parar, ou reinício por troca de intervalo/toggle) — não é uma falha.
+        }
+        catch (Exception excecao)
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+                StatusMessage = $"Erro no auto-refresh do mapa: {excecao.Message}");
+        }
     }
 
     /// <summary>
@@ -263,13 +446,26 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         try
         {
-            var criterios = ObterCriterios();
             var intervalo = TimeSpan.FromMilliseconds(IntervalMs);
 
-            await foreach (var amostra in _monitorDeProcessos.ObservarAsync(intervalo, criterios, cancellationToken))
+            // ObterCriterios passado como PROVEDOR (não invocado aqui): MonitorDeProcessos.ObservarAsync
+            // chama de novo a cada tick, então PidFixado sempre reflete o ProcessoSelecionado ATUAL —
+            // uma troca de seleção passa a valer no próximo tick, sem precisar reiniciar este laço
+            // (o que também reiniciaria sem necessidade o laço independente do mapa de memória).
+            await foreach (var amostra in _monitorDeProcessos.ObservarAsync(intervalo, ObterCriterios, cancellationToken))
             {
                 var amostraAtual = amostra;
                 await Dispatcher.UIThread.InvokeAsync(() => ReconciliarProcessos(amostraAtual));
+
+                // Threads do processo selecionado acompanham o mesmo ciclo: custo de `ps -M` é
+                // desprezível (dezenas de ms, medido) frente ao ciclo do monitor, então não
+                // precisa de laço próprio — ao contrário do mapa de memória (vmmap custa
+                // ~1-1,5s, ver ExecutarLoopDoMapaAsync). Roda sob o TOKEN DO PRÓPRIO LAÇO (não
+                // _cancelamentoSelecao) para não repetir a corrida de CTS descartado documentada
+                // em AtualizarMapaAsync — o cancelamento deste laço já cobre o ciclo de vida certo.
+                var selecionado = await Dispatcher.UIThread.InvokeAsync(() => ProcessoSelecionado);
+                if (selecionado is not null)
+                    await AtualizarThreadsAsync(selecionado, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -320,7 +516,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         if (item is null)
         {
-            await Dispatcher.UIThread.InvokeAsync(ThreadsSelecionadas.Clear);
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _pidDasThreadsExibidas = null;
+                _itensPorTid.Clear();
+                ThreadsSelecionadas.Clear();
+            });
             return;
         }
 
@@ -328,13 +529,24 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
 
         var threadsFonte = leitura.TemValor ? leitura.Valor! : item.Processo.Threads;
-        var itensDeThread = threadsFonte.Select(ThreadItemViewModel.De).ToList();
 
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            ThreadsSelecionadas.Clear();
-            foreach (var threadItem in itensDeThread)
-                ThreadsSelecionadas.Add(threadItem);
+            // Resultado obsoleto: a seleção já trocou de novo enquanto ObterThreadsAsync rodava.
+            // Checagem por identidade (não por token) — cobre tick do laço, troca de seleção e
+            // botão manual pelo mesmo caminho, independente de qual CTS governava esta chamada.
+            if (!ReferenceEquals(ProcessoSelecionado, item))
+                return;
+
+            // Troca de processo: reset explícito antes de reconciliar (ver doc de _pidDasThreadsExibidas).
+            if (_pidDasThreadsExibidas != item.Pid)
+            {
+                _itensPorTid.Clear();
+                ThreadsSelecionadas.Clear();
+                _pidDasThreadsExibidas = item.Pid;
+            }
+
+            ReconciliadorDeThreads.Reconciliar(ThreadsSelecionadas, _itensPorTid, threadsFonte);
         });
     }
 
@@ -349,6 +561,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                _ultimasRegioesDoMapa = [];
                 BlocosDeMemoria.Clear();
                 BlocoSelecionado = null;
                 RotuloOrigemDoMapa = string.Empty;
@@ -357,36 +570,46 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        var cronometro = Stopwatch.StartNew();
         var resultado = await _obterMapaDeMemoria.ExecutarAsync(
             item.Processo.Pid,
             item.Processo.PerfilDeMemoria,
             _tamanhoDePaginaAtual,
             cancellationToken).ConfigureAwait(false);
+        cronometro.Stop();
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var blocos = ConstruirBlocos(resultado.Mapa.Regioes, SelecionarBloco);
-
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
-            BlocosDeMemoria.Clear();
-            foreach (var bloco in blocos)
-                BlocosDeMemoria.Add(bloco);
+            // Resultado obsoleto: mesma checagem por identidade de AtualizarThreadsAsync.
+            if (!ReferenceEquals(ProcessoSelecionado, item))
+                return;
 
-            BlocoSelecionado = null;
+            _ultimasRegioesDoMapa = resultado.Mapa.Regioes;
+            var blocos = ConstruirBlocos(_ultimasRegioesDoMapa, QuantidadeDeBlocosSelecionada, SelecionarBloco);
+            ReconciliadorDeBlocosDeMemoria.Reconciliar(BlocosDeMemoria, blocos);
+
+            // O bloco selecionado só é limpo se a região dele realmente sumiu do mapa nesta
+            // leitura — preservar a seleção entre atualizações é o que torna o painel de
+            // detalhes utilizável quando o mapa está se atualizando sozinho.
+            if (BlocoSelecionado is not null && !BlocosDeMemoria.Contains(BlocoSelecionado))
+                BlocoSelecionado = null;
 
             RotuloOrigemDoMapa = RotulosPtBr.RotuloDeOrigemDoMapa(resultado.Mapa.OrigemDosDados);
 
             MotivoDoFallbackTexto = resultado.MotivoDoFallback is { } motivo
                 ? RotulosPtBr.DescreverFallbackDeMapa(motivo)
                 : null;
+
+            DuracaoDaUltimaLeituraDoMapa = $"leitura em {cronometro.Elapsed.TotalSeconds.ToString("F1", CultureInfo.GetCultureInfo("pt-BR"))} s";
         });
     }
 
     /// <summary>
     /// Dois critérios de ordenação diferentes, deliberadamente não fundidos em um único
     /// <c>OrderBy</c>: o CORTE de quais regiões ganham bloco individual é por extensão
-    /// decrescente (as maiores primeiro, até <see cref="MaximoDeRegioesExibidas"/>) — é o que
+    /// decrescente (as maiores primeiro, até <paramref name="maximoDeBlocos"/>) — é o que
     /// mantém o mapa legível; mas a EXIBIÇÃO final é por endereço crescente
     /// (<see cref="FaixaDeEnderecos.Inicio"/>), porque é a ordem por endereço que ensina o layout
     /// real do espaço de endereçamento virtual do processo. O bloco agregado ("…+K regiões
@@ -394,12 +617,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     /// </summary>
     internal static List<BlocoDeMemoriaViewModel> ConstruirBlocos(
         IReadOnlyList<RegiaoDeMemoria> regioes,
+        int maximoDeBlocos,
         Action<BlocoDeMemoriaViewModel> aoSelecionar)
     {
         var ordenadasPorExtensao = regioes.OrderByDescending(regiao => regiao.FaixaDeEnderecos.Extensao.Valor).ToList();
 
-        var maioresRegioes = ordenadasPorExtensao.Take(MaximoDeRegioesExibidas);
-        var restantes = ordenadasPorExtensao.Skip(MaximoDeRegioesExibidas).ToList();
+        var maioresRegioes = ordenadasPorExtensao.Take(maximoDeBlocos);
+        var restantes = ordenadasPorExtensao.Skip(maximoDeBlocos).ToList();
 
         var resultado = maioresRegioes
             .OrderBy(regiao => regiao.FaixaDeEnderecos.Inicio.Valor)
@@ -412,12 +636,22 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         return resultado;
     }
 
+    /// <summary>Garante idempotência do <see cref="Dispose"/>: ele é chamado duas vezes no encerramento (pelo <c>OnClosed</c> da janela e pelo <c>ServiceProvider</c>).</summary>
+    private bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
         _cts?.Cancel();
         _cts?.Dispose();
         _cancelamentoSelecao?.Cancel();
         _cancelamentoSelecao?.Dispose();
+        _ctsMapa?.Cancel();
+        _ctsMapa?.Dispose();
+        _semaforoDoMapa.Dispose();
         GC.SuppressFinalize(this);
     }
 }

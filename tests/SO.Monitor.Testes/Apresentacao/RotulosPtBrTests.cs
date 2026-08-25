@@ -69,4 +69,16 @@ public class RotulosPtBrTests
         Assert.NotNull(tooltip);
         Assert.Contains("ps", tooltip);
     }
+
+    /// <summary>Trava contra um `switch` esquecido: se <see cref="TipoDeRegiao"/> ganhar um novo valor, este teste falha até alguém preencher os dois métodos.</summary>
+    [Theory]
+    [MemberData(nameof(TodosOsTiposDeRegiao))]
+    public void TextoETextoDidatico_TodoTipoDeRegiao_RetornamTextoNaoVazio(TipoDeRegiao tipo)
+    {
+        Assert.False(string.IsNullOrWhiteSpace(RotulosPtBr.Texto(tipo)));
+        Assert.False(string.IsNullOrWhiteSpace(RotulosPtBr.TextoDidatico(tipo)));
+    }
+
+    public static IEnumerable<object[]> TodosOsTiposDeRegiao() =>
+        Enum.GetValues<TipoDeRegiao>().Select(tipo => new object[] { tipo });
 }

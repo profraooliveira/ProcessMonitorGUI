@@ -13,20 +13,13 @@ public sealed class BytesLegiveisConverter : IValueConverter
     private static readonly string[] Sufixos = ["B", "KB", "MB", "GB", "TB"];
     private static readonly CultureInfo CulturaPtBr = CultureInfo.GetCultureInfo("pt-BR");
 
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    /// <summary>Lógica de formatação pura, reaproveitada por quem precisa do texto fora de um binding XAML (ex.: <see cref="MonitorGUI.ViewModels.BlocoDeMemoriaViewModel.TooltipDidatico"/>).</summary>
+    public static string Formatar(long? bytes)
     {
-        double? bytes = value switch
-        {
-            long valor => valor,
-            int valor => valor,
-            double valor => valor,
-            _ => null
-        };
-
         if (bytes is null)
             return "—";
 
-        var tamanho = bytes.Value;
+        var tamanho = (double)bytes.Value;
         var indice = 0;
         while (tamanho >= 1024 && indice < Sufixos.Length - 1)
         {
@@ -35,6 +28,19 @@ public sealed class BytesLegiveisConverter : IValueConverter
         }
 
         return $"{tamanho.ToString("N1", CulturaPtBr)} {Sufixos[indice]}";
+    }
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        long? bytes = value switch
+        {
+            long valor => valor,
+            int valor => valor,
+            double valor => (long)valor,
+            _ => null
+        };
+
+        return Formatar(bytes);
     }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>

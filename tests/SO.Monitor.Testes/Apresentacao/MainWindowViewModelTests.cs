@@ -102,6 +102,53 @@ public class MainWindowViewModelTests
         vm.Dispose();
     }
 
+    /// <summary>
+    /// Regressão do crash de encerramento (exit code 134): no shutdown real, <c>Dispose</c> é
+    /// chamado DUAS vezes — primeiro pelo <c>OnClosed</c> da janela, depois pelo
+    /// <c>ServiceProvider</c> ao descartar o singleton. A segunda chamada lançava
+    /// ObjectDisposedException em <c>_cts.Cancel()</c>; o contrato de IDisposable exige idempotência.
+    /// </summary>
+    [Fact]
+    public async Task Dispose_ChamadoDuasVezes_NaoLancaObjectDisposedException()
+    {
+        var vm = CriarViewModel(new FonteDeProcessosQueNuncaCompleta());
+
+        // Liga o monitor para que _cts exista de verdade, como no cenário do crash.
+        await ComLimiteDeTempoAsync(vm.StartMonitoringCommand.ExecuteAsync(null));
+
+        var excecao = Record.Exception(() =>
+        {
+            vm.Dispose(); // OnClosed da janela
+            vm.Dispose(); // ServiceProvider.Dispose() no ShutdownRequested
+        });
+
+        Assert.Null(excecao);
+    }
+
+    /// <summary>
+    /// Regressão do laço de auto-refresh do mapa (<c>_ctsMapa</c>/<c>_loopDoMapaTask</c>,
+    /// separado de <c>_cts</c>/<c>_loopTask</c> porque a cadência do mapa é decoupled do "Ciclo
+    /// (ms)"): "Iniciar Monitor" liga os dois laços juntos (<c>AtualizacaoAutomaticaDoMapa</c>
+    /// tem default <c>true</c>), e <c>Dispose</c> chamado duas vezes (mesmo cenário do crash de
+    /// encerramento real) precisa continuar limpo mesmo com o segundo laço em voo.
+    /// </summary>
+    [Fact]
+    public async Task Dispose_ChamadoDuasVezes_ComLoopDoMapaJaIniciado_ContinuaLimpo()
+    {
+        var vm = CriarViewModel(new FonteDeProcessosQueNuncaCompleta());
+
+        await ComLimiteDeTempoAsync(vm.StartMonitoringCommand.ExecuteAsync(null));
+        Assert.True(vm.AtualizacaoAutomaticaDoMapa); // default — o laço do mapa deveria ter iniciado junto
+
+        var excecao = Record.Exception(() =>
+        {
+            vm.Dispose();
+            vm.Dispose();
+        });
+
+        Assert.Null(excecao);
+    }
+
     [Fact]
     public async Task AtualizarMapaAsync_UsaTokenDeSelecao_CanceladoQuandoSelecaoTroca()
     {

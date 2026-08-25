@@ -17,13 +17,19 @@ public sealed class MonitorDeProcessos(ObterAmostraClassificada obterAmostra)
     /// e depois a cada disparo do temporizador, até o cancelamento. O cancelamento é sempre
     /// limpo: nenhuma <see cref="OperationCanceledException"/> escapa para quem consome o fluxo
     /// — o enumerador simplesmente termina (<c>yield break</c>).
+    /// <para/>
+    /// <paramref name="obterCriterios"/> é um PROVEDOR (chamado a cada tick), não um valor
+    /// congelado no início do stream: o chamador tipicamente deriva os critérios de estado de UI
+    /// que muda durante o próprio stream (ex.: processo selecionado, para o "pin" descrito em
+    /// <see cref="CriteriosDeAmostragem.PidFixado"/>) — congelar os critérios na criação do
+    /// stream faria uma troca de seleção só valer a partir do PRÓXIMO reinício do laço.
     /// </summary>
     public async IAsyncEnumerable<AmostraDoSistema> ObservarAsync(
         TimeSpan intervalo,
-        CriteriosDeAmostragem criterios,
+        Func<CriteriosDeAmostragem> obterCriterios,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var primeiraAmostra = await TentarObterAmostraAsync(criterios, cancellationToken).ConfigureAwait(false);
+        var primeiraAmostra = await TentarObterAmostraAsync(obterCriterios(), cancellationToken).ConfigureAwait(false);
         if (primeiraAmostra is null)
             yield break;
 
@@ -33,7 +39,7 @@ public sealed class MonitorDeProcessos(ObterAmostraClassificada obterAmostra)
 
         while (await TentarAguardarProximoTickAsync(temporizador, cancellationToken).ConfigureAwait(false))
         {
-            var amostra = await TentarObterAmostraAsync(criterios, cancellationToken).ConfigureAwait(false);
+            var amostra = await TentarObterAmostraAsync(obterCriterios(), cancellationToken).ConfigureAwait(false);
             if (amostra is null)
                 yield break;
 

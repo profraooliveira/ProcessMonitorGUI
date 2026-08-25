@@ -44,7 +44,7 @@ public class ConstruirBlocosTests
             CriarRegiao(0x2000, 0x50),
         };
 
-        var blocos = MainWindowViewModel.ConstruirBlocos(regioes, _ => { });
+        var blocos = MainWindowViewModel.ConstruirBlocos(regioes, maximoDeBlocos: 120, _ => { });
 
         Assert.Equal(3, blocos.Count);
         Assert.All(blocos, bloco => Assert.False(bloco.EhAgregado));
@@ -74,7 +74,7 @@ public class ConstruirBlocosTests
             regioes.Add(CriarRegiao(inicio, extensao: 0x10)); // minúscula: nunca deveria virar bloco individual
         }
 
-        var blocos = MainWindowViewModel.ConstruirBlocos(regioes, _ => { });
+        var blocos = MainWindowViewModel.ConstruirBlocos(regioes, maximoDeBlocos: 120, _ => { });
 
         Assert.Equal(121, blocos.Count); // 120 individuais + 1 agregado
 
@@ -91,5 +91,27 @@ public class ConstruirBlocosTests
         var agregado = blocos[^1];
         Assert.True(agregado.EhAgregado);
         Assert.Equal(5 * 0x10L, agregado.ExtensaoBytes);
+    }
+
+    [Fact]
+    public void ConstruirBlocos_CapMenor_GeraMenosBlocosIndividuaisEAgregadoMaior()
+    {
+        var regioes = new List<RegiaoDeMemoria>
+        {
+            CriarRegiao(0x1000, 0x500),
+            CriarRegiao(0x2000, 0x400),
+            CriarRegiao(0x3000, 0x300),
+            CriarRegiao(0x4000, 0x200),
+            CriarRegiao(0x5000, 0x100),
+        };
+
+        var blocos = MainWindowViewModel.ConstruirBlocos(regioes, maximoDeBlocos: 2, _ => { });
+
+        Assert.Equal(3, blocos.Count); // 2 individuais + 1 agregado com as 3 menores
+        Assert.Equal(2, blocos.Count(bloco => !bloco.EhAgregado));
+
+        var agregado = blocos[^1];
+        Assert.True(agregado.EhAgregado);
+        Assert.Equal(0x300 + 0x200 + 0x100, agregado.ExtensaoBytes);
     }
 }

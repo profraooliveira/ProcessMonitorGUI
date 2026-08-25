@@ -19,6 +19,7 @@
         <conv:BytesLegiveisConverter x:Key="BytesLegiveisConverter"/>
         <conv:NuloParaTextoConverter x:Key="NuloParaTextoConverter"/>
         <conv:TipoDeRegiaoParaCorConverter x:Key="TipoDeRegiaoParaCorConverter"/>
+        <conv:TempoDeCpuParaTextoConverter x:Key="TempoDeCpuParaTextoConverter"/>
     </Window.Resources>
 
     <Window.Styles>
@@ -133,7 +134,7 @@
                                 <DataGridTextColumn Header="Estado" Binding="{Binding EstadoTexto}" />
                                 <DataGridTextColumn Header="Motivo do bloqueio" Binding="{Binding MotivoDeBloqueioTexto}" Width="*" />
                                 <DataGridTextColumn Header="Prioridade" Binding="{Binding Prioridade, Converter={StaticResource NuloParaTextoConverter}}" />
-                                <DataGridTextColumn Header="Tempo de CPU" Binding="{Binding TempoDeCpu, StringFormat='{}{0:mm\:ss\.fff}', TargetNullValue='—'}" />
+                                <DataGridTextColumn Header="Tempo de CPU" Binding="{Binding TempoDeCpu, Converter={StaticResource TempoDeCpuParaTextoConverter}}" />
                             </DataGrid.Columns>
                         </DataGrid>
 
@@ -148,20 +149,34 @@
 
                 <!-- Memory Map View (Detail Right) -->
                 <Border Grid.Column="2" Background="#1E1E1E" CornerRadius="8" Padding="10" BorderBrush="#333333" BorderThickness="1">
-                    <Grid RowDefinitions="Auto, Auto, *, Auto, Auto">
+                    <Grid RowDefinitions="Auto, Auto, Auto, *, Auto, Auto">
                         <StackPanel Grid.Row="0" Margin="0,0,0,8">
                             <!-- Rótulo obrigatório da origem: "MAPA DE MEMÓRIA REAL (medido do SO)" vs "MAPA SIMULADO (modo didático)" -->
                             <TextBlock Text="{Binding RotuloOrigemDoMapa}" FontSize="13" FontWeight="Bold" Foreground="#66BB6A" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding MotivoDoFallbackTexto, StringFormat='Motivo: {0}'}" FontSize="10" Foreground="#FFB300" TextWrapping="Wrap"
                                        IsVisible="{Binding MotivoDoFallbackTexto, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+                            <!-- Medição honesta: responde "por que o mapa não atualiza tão rápido quanto a lista" com um número, não um parágrafo. -->
+                            <TextBlock Text="{Binding DuracaoDaUltimaLeituraDoMapa}" FontSize="10" Foreground="#888888"
+                                       IsVisible="{Binding DuracaoDaUltimaLeituraDoMapa, Converter={x:Static ObjectConverters.IsNotNull}}"/>
                         </StackPanel>
 
-                        <Button Grid.Row="1" Content="Atualizar mapa" Command="{Binding AtualizarMapaCommand}"
-                                IsEnabled="{Binding ProcessoSelecionado, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                HorizontalAlignment="Left" Margin="0,0,0,8"/>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="0,0,0,6">
+                            <Button Content="Atualizar mapa" Command="{Binding AtualizarMapaCommand}"/>
+                            <TextBlock Text="Blocos:" VerticalAlignment="Center" Foreground="White" Margin="10,0,0,0"/>
+                            <ComboBox ItemsSource="{Binding OpcoesQuantidadeDeBlocos}" SelectedItem="{Binding QuantidadeDeBlocosSelecionada}"
+                                      Width="70" Background="#3E3E42" Foreground="White"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+                            <CheckBox Content="Auto" IsChecked="{Binding AtualizacaoAutomaticaDoMapa}" Foreground="White"/>
+                            <TextBlock Text="a cada" VerticalAlignment="Center" Foreground="White"/>
+                            <ComboBox ItemsSource="{Binding OpcoesIntervaloDoMapaEmSegundos}" SelectedItem="{Binding IntervaloDoMapaEmSegundos}"
+                                      Width="55" Background="#3E3E42" Foreground="White"/>
+                            <TextBlock Text="s" VerticalAlignment="Center" Foreground="White"/>
+                        </StackPanel>
 
                         <!-- Grade de blocos: cada bloco = uma região real de memória -->
-                        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Margin="0,0,0,10">
+                        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,0,0,10">
                             <ItemsControl ItemsSource="{Binding BlocosDeMemoria}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>
@@ -174,7 +189,7 @@
                                                 Classes="bloco-memoria"
                                                 Classes.selecionado="{Binding IsSelected}"
                                                 Background="{Binding TipoDeRegiao, Converter={StaticResource TipoDeRegiaoParaCorConverter}}"
-                                                ToolTip.Tip="{Binding Rotulo}"
+                                                ToolTip.Tip="{Binding TooltipDidatico}"
                                                 Command="{Binding SelecionarCommand}"/>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
@@ -182,7 +197,7 @@
                         </ScrollViewer>
 
                         <!-- Detalhes do Bloco Selecionado: dados REAIS (endereços, permissões, residência) -->
-                        <Border Grid.Row="3" Background="#252526" BorderBrush="#333333" BorderThickness="1" CornerRadius="5" Padding="8" MinHeight="110" Margin="0,0,0,8">
+                        <Border Grid.Row="4" Background="#252526" BorderBrush="#333333" BorderThickness="1" CornerRadius="5" Padding="8" MinHeight="150" Margin="0,0,0,8">
                             <Grid>
                                 <StackPanel IsVisible="{Binding BlocoSelecionado, Converter={x:Static ObjectConverters.IsNotNull}}">
                                     <TextBlock Text="{Binding BlocoSelecionado.Rotulo}" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap"/>
@@ -190,6 +205,7 @@
                                     <TextBlock Text="{Binding BlocoSelecionado.PermissoesTexto, StringFormat='Permissões: {0}'}" FontSize="11" Foreground="#CCCCCC"/>
                                     <TextBlock Text="{Binding BlocoSelecionado.ResidenteBytes, Converter={StaticResource BytesLegiveisConverter}, StringFormat='Residente: {0}'}" FontSize="11" Foreground="#CCCCCC"/>
                                     <TextBlock Text="{Binding BlocoSelecionado.EmSwapBytes, Converter={StaticResource BytesLegiveisConverter}, StringFormat='Em swap: {0}'}" FontSize="11" Foreground="#CCCCCC"/>
+                                    <TextBlock Text="{Binding BlocoSelecionado.TextoDidatico}" FontSize="11" Foreground="#AAAAAA" TextWrapping="Wrap" Margin="0,6,0,0"/>
                                 </StackPanel>
                                 <TextBlock IsVisible="{Binding BlocoSelecionado, Converter={x:Static ObjectConverters.IsNull}}"
                                            Text="Clique em um bloco de memória acima para ver os dados reais da região."
@@ -198,7 +214,7 @@
                         </Border>
 
                         <!-- Legenda de cores do mapa -->
-                        <WrapPanel Grid.Row="4" Orientation="Horizontal">
+                        <WrapPanel Grid.Row="5" Orientation="Horizontal">
                             <StackPanel Orientation="Horizontal" Margin="0,0,10,4" Spacing="4">
                                 <Border Width="10" Height="10" Background="{StaticResource CorRegiaoCodigo}" CornerRadius="2"/>
                                 <TextBlock Text="Código" FontSize="10" Foreground="#AAAAAA"/>

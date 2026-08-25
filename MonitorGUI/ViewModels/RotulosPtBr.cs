@@ -38,6 +38,43 @@ public static class RotulosPtBr
         _ => "Indeterminado"
     };
 
+    /// <summary>Rótulo curto de um tipo de região de memória (ex.: "Heap", "Pilha (stack)") — usado como nome de exibição do bloco.</summary>
+    public static string Texto(TipoDeRegiao tipo) => tipo switch
+    {
+        TipoDeRegiao.Codigo => "Código (.text)",
+        TipoDeRegiao.DadosEstaticos => "Dados estáticos",
+        TipoDeRegiao.Heap => "Heap",
+        TipoDeRegiao.Pilha => "Pilha (stack)",
+        TipoDeRegiao.BibliotecaCompartilhada => "Biblioteca compartilhada",
+        TipoDeRegiao.ArquivoMapeado => "Arquivo mapeado",
+        TipoDeRegiao.Reservada => "Reservado",
+        _ => "Outra região"
+    };
+
+    /// <summary>
+    /// Explicação didática (1-2 frases, estilo Tanenbaum) do que um tipo de região de memória
+    /// representa e por que importa — usada na tooltip do bloco e no painel de detalhes, expande
+    /// a doc XML já existente em <see cref="TipoDeRegiao"/> com o "porquê" prático de cada uma.
+    /// </summary>
+    public static string TextoDidatico(TipoDeRegiao tipo) => tipo switch
+    {
+        TipoDeRegiao.Codigo =>
+            "Instruções executáveis do programa, tipicamente somente leitura e execução — o SO compartilha essas páginas entre processos que rodam o mesmo binário.",
+        TipoDeRegiao.DadosEstaticos =>
+            "Variáveis globais e estáticas, inicializadas pelo carregador antes do main() começar — existem durante toda a vida do processo, ao contrário do heap e da pilha.",
+        TipoDeRegiao.Heap =>
+            "Memória alocada dinamicamente em tempo de execução (malloc/new). Cresce sob demanda em direção à pilha; memória liberada pelo programa costuma continuar mapeada no processo, então residência não é o mesmo que liveness.",
+        TipoDeRegiao.Pilha =>
+            "Pilha de execução (stack): quadros de chamada, variáveis locais e endereço de retorno de cada função. Cada thread do processo tem a sua própria.",
+        TipoDeRegiao.BibliotecaCompartilhada =>
+            "Biblioteca dinâmica (.so/.dylib/.dll) mapeada no espaço de endereçamento — o código é compartilhado entre processos que a usam; só os dados privados de cada um ocupam memória à parte.",
+        TipoDeRegiao.ArquivoMapeado =>
+            "Arquivo em disco mapeado diretamente na memória virtual (memory-mapped file) — o SO carrega páginas sob demanda conforme são acessadas, em vez de ler o arquivo inteiro de uma vez.",
+        TipoDeRegiao.Reservada =>
+            "Espaço de endereçamento reservado, mas ainda não comprometido (committed) a nenhum conteúdo — não ocupa RAM nem swap até que o processo de fato o use.",
+        _ => "Região cujo propósito não se encaixa nas categorias didáticas acima."
+    };
+
     /// <summary>
     /// Texto didático do motivo de bloqueio de uma thread. Uma thread só tem motivo quando está
     /// de fato <see cref="EstadoThread.Bloqueada"/>; fora disso "—" (não se aplica). Esse curto-

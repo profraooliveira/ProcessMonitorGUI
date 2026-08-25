@@ -19,7 +19,7 @@ public class MonitorDeProcessosTests
 
         try
         {
-            await foreach (var amostra in monitor.ObservarAsync(TimeSpan.FromMilliseconds(50), CriteriosDeAmostragem.Padrao, cts.Token))
+            await foreach (var amostra in monitor.ObservarAsync(TimeSpan.FromMilliseconds(50), () => CriteriosDeAmostragem.Padrao, cts.Token))
             {
                 amostrasRecebidas.Add(amostra);
                 if (amostrasRecebidas.Count >= 2)
@@ -49,7 +49,7 @@ public class MonitorDeProcessosTests
 
         try
         {
-            await foreach (var amostra in monitor.ObservarAsync(TimeSpan.FromMilliseconds(50), CriteriosDeAmostragem.Padrao, cts.Token))
+            await foreach (var amostra in monitor.ObservarAsync(TimeSpan.FromMilliseconds(50), () => CriteriosDeAmostragem.Padrao, cts.Token))
                 amostrasRecebidas.Add(amostra);
         }
         catch (Exception excecao)

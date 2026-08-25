@@ -35,6 +35,17 @@ public sealed class ObterAmostraClassificada(IFonteDeProcessos fonte, IPoliticaD
             .Take(criterios.Limite)
             .ToList();
 
+        // Processo selecionado na interface: fica sempre visível mesmo que sua %CPU caia fora do
+        // corte por Limite nesta rodada — sem isso, uma oscilação de %CPU perto da borda derruba
+        // a seleção do usuário a cada poucos ciclos. Só é pinado se ainda existir E ainda bater
+        // com o filtro de perfil (ver doc de CriteriosDeAmostragem.PidFixado).
+        if (criterios.PidFixado is { } pidFixado && processosFinais.All(processo => processo.Pid != pidFixado))
+        {
+            var processoFixado = classificados.FirstOrDefault(processo => processo.Pid == pidFixado);
+            if (processoFixado is not null && filtrados.Contains(processoFixado))
+                processosFinais.Add(processoFixado);
+        }
+
         return amostra with { Processos = processosFinais };
     }
 }
